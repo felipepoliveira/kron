@@ -4,14 +4,64 @@
 package io.felipepoliveira
 
 import io.felipepoliveira.commons.time.Cron
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import java.time.LocalDateTime
 
 
 fun main() {
-    val cron = Cron.fromExpression("*/5 * * * *")
+    val cron1 = Cron.fromExpression("* * * * *")  // Every Minute
+    val cron2 = Cron.fromExpression("*/5 * * * *")  // Every 5 Minutes
+    val cron3 = Cron.fromExpression("0 * * * *")  // Every Hour
+    val cron4 = Cron.fromExpression("0 0 * * *")  // Every Day at Midnight
+    val cron5 = Cron.fromExpression("0 8 * * MON")  // Every Monday at 8 AM
+    val cron6 = Cron.fromExpression("30 10 15 * *")  // Every 15th of the Month at 10:30 AM
+    val cron7 = Cron.fromExpression("0 17 * * MON-FRI")  // Every Weekday at 5 PM
+    val cron8 = Cron.fromExpression("0 0 1 * *")  // Every First Day of the Month at Midnight
+    val cron9 = Cron.fromExpression("0 0 1 1 *")  // Every January 1st at Midnight
+    val cron10 = Cron.fromExpression("0 2 * * SUN")  // Every Sunday at 2 AM
+    val cron11 = Cron.fromExpression("*/10 * * * *")  // Every 10 Minutes
+    val cron12 = Cron.fromExpression("0 */2 * * *")  // Every 2 Hours
+    val cron13 = Cron.fromExpression("0 */6 * * *")  // Every 6 Hours
+    val cron14 = Cron.fromExpression("* * * * MON-FRI")  // Every Minute on Weekdays
+    val cron15 = Cron.fromExpression("*/30 * 1,15 * *")  // Every 30 Minutes on the 1st and 15th of Each Month
+    val cron16 = Cron.fromExpression("15 12 * * *")  // Every Day at Noon
+    val cron17 = Cron.fromExpression("30 15 * * SAT")  // Every Saturday at 3:30 PM
+    val cron18 = Cron.fromExpression("*/5 0 * * *")  // Every 5 Minutes, Starting at Midnight
+    val cron19 = Cron.fromExpression("0 15 5 JAN *")  // Every 5th of January at 3 PM
+    val cron20 = Cron.fromExpression("0 7 3 JUL *")  // Every 3rd of July at 7 AM
+    val cron21 = Cron.fromExpression("59 23 * * *")  // Every Day at 11:59 PM
+    val cron22 = Cron.fromExpression("0 0 29 2 *")  // Every Leap Year on February 29th at Midnight
+    val cron23 = Cron.fromExpression("0 0 1 1,4,7,10 *")  // Non-Standard Syntax for Quarterly
+
+    // Print the cron expressions for verification
+    println(cron1)
+    println(cron2)
+    println(cron3)
+    println(cron4)
+    println(cron5)
+    println(cron6)
+    println(cron7)
+    println(cron8)
+    println(cron9)
+    println(cron10)
+    println(cron11)
+    println(cron12)
+    println(cron13)
+    println(cron14)
+    println(cron15)
+    println(cron16)
+    println(cron17)
+    println(cron18)
+    println(cron19)
+    println(cron20)
+    println(cron21)
+    println(cron22)
+    println(cron23)
+    val cron = Cron.fromExpression("* * * * *")
+    println(cron)
     runBlocking {
-        cron.startWorker(this) {
+        val job = cron.startWorker(this) {
             println("Executed at ${it.startedAt}. The next one will be at: ${it.nextExecutionAt}")
         }
     }

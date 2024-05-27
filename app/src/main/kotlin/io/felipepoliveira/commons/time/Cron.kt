@@ -13,16 +13,89 @@ data class CronJobIsExecutingEvent (
     val nextExecutionAt: LocalDateTime,
 )
 
+/**
+ * Parse a cron unit value to its integer value
+ */
+private fun parseCronUnitValueToInt(param: String, unit: CronTimeUnits): Int {
+    if (unit == CronTimeUnits.DAY_OF_WEEK) {
+        when (param.lowercase()) {
+            "sunday", "sun" -> return 0
+            "mon", "monday" -> return 1
+            "tuesday", "tue" -> return 2
+            "wednesday", "wed" -> return 3
+            "thursday", "thu" -> return 4
+            "friday", "fri" -> return 5
+            "saturday", "sat" -> return 6
+        }
+    }
+    else if (unit == CronTimeUnits.MONTH) {
+        when (param.lowercase()) {
+            "january", "jan" -> return 1
+            "february", "feb" -> return 2
+            "march", "mar" -> return 3
+            "april", "apr" -> return 4
+            "may" -> return 5
+            "june", "jun" -> return 6
+            "july", "jul" -> return 7
+            "august", "aug" -> return 8
+            "september", "sep" -> return 9
+            "october", "oct" -> return 10
+            "november", "nov" -> return 11
+            "december", "dec" -> return 12
+        }
+
+    }
+
+    return param.toInt()
+}
+
+/**
+ * The main class of this file. This represents a cron expression. With this class it is possible
+ * to schedule tasks that will execute continuously on a time-based period. To create a instance of this class
+ * is recommended to use Cron.fromExpression() where is much easier to understand
+ */
 class Cron (
+    /**
+     * Contains data about the minute time unit of Cron
+     */
     val minute: CronTimeUnit,
+    /**
+     * Contains data about the hour time unit of Cron
+     */
     val hour: CronTimeUnit,
+    /**
+     * Contains data about the day of month time unit of Cron
+     */
     val dayOfMonth: CronTimeUnit,
+    /**
+     * Contains data about the month time unit of Cron
+     */
     val month: CronTimeUnit,
+    /**
+     * Contains data about the day of week time unit of Cron
+     */
     val dayOfWeek: CronTimeUnit,
 ) {
 
     companion object {
-        fun fromExpression(cronInput: String, timeZoneOffset: ZoneOffset = ZoneOffset.UTC): Cron {
+        /**
+         * Create a instance of Cron based on a unix cron format. You can learn more about the cron format in:
+         * https://en.wikipedia.org/wiki/Cron or, for a more dynamic learning: https://cron.help/
+         * @param cronInput: A String in unix/cron format, like 0 /8 * * 1-5 (every day at 00:00, 08:00, 16:00)
+         * from monday to friday
+         * @param timeZoneOffset: The timezone used on cron. Default value: UTC
+         */
+        fun fromExpression(cronInputParam: String): Cron {
+
+            val cronInput = when(cronInputParam) {
+                "@yearly", "@annually"  -> "0 0 1 1 *"
+                "@monthly" -> "0 0 1 * *"
+                "@weekly" -> "0 0 * * 0"
+                "@daily", "@midnight" -> "0 0 * * *"
+                "@hourly" -> "0 * * * *"
+                else -> cronInputParam
+            }
+
             // interpret as 5 part cron input
             val fivePartsCron = cronInput.split(" ").filter { i -> i.trim().isNotEmpty() }
 
@@ -41,6 +114,10 @@ class Cron (
         }
     }
 
+    /**
+     * Return a flag indicating if the given LocalDateTime is consistent with all cron time units (minute, hour,
+     * day of month, month and day of week)
+     */
     fun onCron(refDate: LocalDateTime): Boolean {
         return (this.minute.onCron(refDate.minute) &&
             this.hour.onCron(refDate.hour) &&
@@ -49,6 +126,10 @@ class Cron (
             this.dayOfWeek.onCron(refDate.dayOfWeek.value))
     }
 
+    /**
+     * This function will receive the given LocalDateTime if it is on cron of the 'day of the week' field it will
+     * return itself, otherwise it will keep adding days until it reaches the day of the week supported by the time unit
+     */
     private fun currentOrNextTimeUntilValidDayOfWeek(refDate: LocalDateTime): LocalDateTime {
         if (this.dayOfWeek.onCron(refDate.dayOfWeek.value))
             return refDate
@@ -67,40 +148,10 @@ class Cron (
         return nextDate
     }
 
-    fun startWorker(scope: CoroutineScope, execute: (event: CronJobIsExecutingEvent) -> Unit): Job {
-        return scope.launch {
-
-            // declare the timers
-            var currentExecutionStartAt = nextTimeAfter(LocalDateTime.now())
-            var nextExecutionStartAt = nextTimeAfter(currentExecutionStartAt)
-
-            while (true) {
-
-                // on interrupt...
-                if (!isActive) {
-                    return@launch
-                }
-
-                // wait until the first execution
-                val timeToWaitInMillis = Duration.between(LocalDateTime.now(), currentExecutionStartAt).toMillis()
-                if (timeToWaitInMillis > 0) {
-                    delay(timeToWaitInMillis)
-                }
-
-
-                // execute it
-                execute(CronJobIsExecutingEvent(
-                    startedAt = currentExecutionStartAt,
-                    nextExecutionAt = nextExecutionStartAt
-                ))
-
-                // calculate the next execution
-                currentExecutionStartAt = nextExecutionStartAt
-                nextExecutionStartAt = nextTimeAfter(currentExecutionStartAt)
-            }
-        }
-    }
-
+    /**
+     * This function will return a LocalDateTime that is cron consistent with this cron instance with time set after
+     * the given LocalDateTime
+     */
     fun nextTimeAfter(refDate: LocalDateTime): LocalDateTime {
 
         // the nextDate will be manipulated to generate the next date
@@ -162,6 +213,46 @@ class Cron (
         return currentOrNextTimeUntilValidDayOfWeek(nextDate)
     }
 
+    /**
+     * Start a worker that will run asynchronously based on a schedule of the cron. This worker will never start immediaylu,
+     * it will use the function nextTimeAfter() to get the next validation date after now. From each execution it will
+     * increment the timer always using the next of the current one
+     * @param scope - The coroutine execution scope
+     * @param execute - The function that will be triggered in each execution
+     */
+    fun startWorker(scope: CoroutineScope, execute: (event: CronJobIsExecutingEvent) -> Unit): Job {
+        return scope.launch {
+
+            // declare the timers
+            var currentExecutionStartAt = nextTimeAfter(LocalDateTime.now())
+            var nextExecutionStartAt = nextTimeAfter(currentExecutionStartAt)
+
+            while (true) {
+
+                // wait until the first execution
+                val timeToWaitInMillis = Duration.between(LocalDateTime.now(), currentExecutionStartAt).toMillis()
+                if (timeToWaitInMillis > 0) {
+                    delay(timeToWaitInMillis)
+                }
+
+                // on interrupt...
+                if (!isActive) {
+                    return@launch
+                }
+
+                // execute it
+                execute(CronJobIsExecutingEvent(
+                    startedAt = currentExecutionStartAt,
+                    nextExecutionAt = nextExecutionStartAt
+                ))
+
+                // calculate the next execution
+                currentExecutionStartAt = nextExecutionStartAt
+                nextExecutionStartAt = nextTimeAfter(currentExecutionStartAt)
+            }
+        }
+    }
+
     override fun toString(): String {
         return "Cron(minute=$minute, hour=$hour, dayOfMonth=$dayOfMonth, month=$month, dayOfWeek=$dayOfWeek)"
     }
@@ -182,12 +273,24 @@ class CronTimeUnit(
     val unit: CronTimeUnits
 ) {
 
+    /**
+     * This is a very important property in the class. It will include a sorted version of both values and ranges
+     * arrays. It is used on the .next() function to find the next value of the time unit. Also everytime a value
+     * inside .values array collides with a range on .ranges array it will be removed and replaced by the range.
+     * For example:
+     * If the values is [20, 15, 10, 5]
+     * and ranges is [1..12, 36..60]
+     * this array will be:
+     * [1..12, 15, 20, 36..60]
+     * You can see that the values [5, 10] was collided in 1..12 range
+     * This collision and sort operations is made by private function setupProperties
+     */
     private var sortedValuesAndRanges = mutableListOf<Any>()
 
     companion object {
-        val VALUE_REGEX = Regex("^\\*|\\d+\$")
-        val RANGE_REGEX = Regex("^\\d+-\\d+\$")
-        val STEP_REGEX = Regex("^(\\*|\\d+)/(\\d+)\$")
+        val VALUE_REGEX = Regex("^\\*|(\\d|\\w)+\$")
+        val RANGE_REGEX = Regex("^(\\d|\\w)+-(\\d|\\w)+\$")
+        val STEP_REGEX = Regex("^(\\*|(\\d|\\w)+)/((\\d|\\w)+)\$")
     }
 
     init {
@@ -216,14 +319,14 @@ class CronTimeUnit(
                     this.ranges.addLast(unit.range())
                 }
                 else {
-                    this.values.add(inputStmt.toInt())
+                    this.values.add(parseCronUnitValueToInt(inputStmt, unit))
                 }
             }
             // range: digit-digit
             else if (inputStmt.matches(RANGE_REGEX)) {
                 val splitRangeStr = inputStmt.split("-")
-                val initialRangeValue = splitRangeStr[0].toInt()
-                val endRangeValue = splitRangeStr[1].toInt()
+                val initialRangeValue = parseCronUnitValueToInt(splitRangeStr[0], unit)
+                val endRangeValue = parseCronUnitValueToInt(splitRangeStr[1], unit)
 
                 if (initialRangeValue > endRangeValue) {
                     throw IllegalArgumentException("On range expression $inputStmt the initial value should be <= end value")
@@ -233,10 +336,16 @@ class CronTimeUnit(
             }
             // step: *|digit/digit
             else if (inputStmt.matches(STEP_REGEX)) {
-                val splitRangeStr = inputStmt.split("/")
-                val initialStepValue = if (splitRangeStr[0] == "*") unitRange.first else splitRangeStr[0].toInt()
-                val stepValue = splitRangeStr[1].toInt()
-                this.values.addAll(unit.steps(initialStepValue, stepValue))
+                // this expression basically means 'all values' so we add the range to use less memory
+                if (inputStmt == "*/1") {
+                    this.ranges.addLast(unit.range())
+                }
+                else {
+                    val splitRangeStr = inputStmt.split("/")
+                    val initialStepValue = if (splitRangeStr[0] == "*") unitRange.first else parseCronUnitValueToInt(splitRangeStr[0], unit)
+                    val stepValue = parseCronUnitValueToInt(splitRangeStr[1], unit)
+                    this.values.addAll(unit.steps(initialStepValue, stepValue))
+                }
             }
             else {
                 throw IllegalArgumentException("Unexpected expression $cronInputValue")
